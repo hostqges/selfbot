@@ -1,4 +1,4 @@
-# selfbot
+# HOSTAGE SELFBOT
 
 THIS CODE RUNS ON PYTHON, INSTALL PYTHON3 - https://python.org/download
 

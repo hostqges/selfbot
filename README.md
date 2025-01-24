@@ -1,0 +1,2 @@
+# selfbot
+DISCORD EASY SELFBOT

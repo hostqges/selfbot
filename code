@@ -1,0 +1,203 @@
+import discord
+import asyncio
+from discord.ext import commands
+
+TOKEN = "TOKEN"
+prefix = "-"
+bot = commands.Bot(command_prefix=prefix, self_bot=True)
+
+auto_reactions = {}
+deleted_messages = {
+    "server": [], 
+    "dm": []  
+}
+
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user}")
+
+
+async def reply(ctx, reply):
+    """Helper function to send replies."""
+    await ctx.reply(f"\n{reply}\n")
+
+
+# ---- Client Commands ----
+@bot.group()
+async def client(ctx):
+    if ctx.invoked_subcommand is None:
+        await reply(ctx, "Available subcommands: ping, nickname")
+
+
+@client.command()
+async def ping(ctx):
+    await reply(ctx, f"Latency: {round(bot.latency * 1000)}ms")
+
+
+@client.command()
+async def nickname(ctx, *, nickname: str = None):
+    await bot.user.edit(display_name=nickname)
+    if nickname:
+        await reply(ctx, f"Nickname changed to: {nickname}")
+    else:
+        await reply(ctx, "Nickname removed.")
+
+
+# ---- Status Commands ----
+@bot.group()
+async def status(ctx):
+    if ctx.invoked_subcommand is None:
+        await reply(ctx, "Available subcommands: stream, listen, play, compete, watch, stop")
+
+
+@status.command()
+async def stream(ctx, *, text: str):
+    await bot.change_presence(activity=discord.Streaming(name=text, url="https://www.twitch.tv/lzlilozl"))
+    await reply(ctx, f"Streaming: {text}")
+
+
+@status.command()
+async def listen(ctx, *, text: str):
+    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name=text))
+    await reply(ctx, f"Listening to: {text}")
+
+
+@status.command()
+async def play(ctx, *, text: str):
+    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.playing, name=text))
+    await reply(ctx, f"Playing: {text}")
+
+
+@status.command()
+async def compete(ctx, *, text: str):
+    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.competing, name=text))
+    await reply(ctx, f"Competing in: {text}")
+
+
+@status.command()
+async def watch(ctx, *, text: str):
+    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=text))
+    await reply(ctx, f"Watching: {text}")
+
+
+@status.command()
+async def stop(ctx):
+    await bot.change_presence(activity=discord.Activity(name=None))
+    await reply(ctx, "Status stopped")
+
+
+# ---- Auto-Reaction Commands ----
+@bot.command()
+async def autoreact(ctx, emoji: str, user: discord.User):
+    """Start auto-reacting to a user's messages with a specific emoji."""
+    if user.id not in auto_reactions:
+        auto_reactions[user.id] = []
+
+    if emoji not in auto_reactions[user.id]:
+        auto_reactions[user.id].append(emoji)
+        await reply(ctx, f"Started auto-reacting with {emoji} to {user.mention}'s messages.")
+    else:
+        await reply(ctx, f"Already reacting with {emoji} to {user.mention}'s messages.")
+
+
+@bot.command()
+async def stopautoreact(ctx, emoji: str, user: discord.User):
+    """Stop auto-reacting with a specific emoji to a user's messages."""
+    if user.id in auto_reactions and emoji in auto_reactions[user.id]:
+        auto_reactions[user.id].remove(emoji)
+        await reply(ctx, f"Stopped auto-reacting with {emoji} to {user.mention}'s messages.")
+    else:
+        await reply(ctx, f"Not reacting with {emoji} to {user.mention}'s messages.")
+
+
+@bot.command()
+async def stopautoreactall(ctx, user: discord.User):
+    """Stop all auto-reactions for a specific user."""
+    if user.id in auto_reactions:
+        auto_reactions[user.id] = []
+        await reply(ctx, f"Stopped all auto-reactions to {user.mention}'s messages.")
+    else:
+        await reply(ctx, f"Not reacting to any of {user.mention}'s messages.")
+
+
+# ---- Mass DM Commands ----
+async def send_mass_dm_to_friends(message):
+    """Sends a DM to all friends of the bot."""
+    try:
+        if not hasattr(bot.user, "relationships"):
+            print("Self-bots cannot access friend lists in this environment.")
+            return False
+
+        for friend in bot.user.friends:
+            try:
+                await friend.send(message)
+                print(f"DM sent to: {friend.name}")
+                await asyncio.sleep(5)  # Add delay to avoid rate limits
+            except discord.Forbidden:
+                print(f"Could not DM {friend.name} (DMs likely disabled).")
+            except Exception as e:
+                print(f"Error DMing {friend.name}: {e}")
+        return True
+    except Exception as e:
+        print(f"Error during mass DM: {e}")
+        return False
+
+
+@bot.command()
+async def send_mass_dm(ctx, *, message: str):
+    """Command to send a mass DM to all friends."""
+    await ctx.send("Attempting to DM all friends. This may take some time.")
+    success = await send_mass_dm_to_friends(message)
+    if success:
+        await ctx.send("Mass DM completed!")
+    else:
+        await ctx.send("Mass DM failed. Make sure this functionality is supported in your environment.")
+
+
+# ---- Event Listener for Auto-Reactions ----
+@bot.event
+async def on_message(message):
+    if message.author.id in auto_reactions:
+        for emoji in auto_reactions[message.author.id]:
+            try:
+                await message.add_reaction(emoji)
+            except discord.DiscordException as e:
+                print(f"Error reacting with {emoji}: {e}")
+
+    await bot.process_commands(message)
+
+
+# ---- Sniping Command ----
+@bot.command()
+async def snipe(ctx):
+    """Command to snipe the last deleted message from the server or DM."""
+    if isinstance(ctx.channel, discord.DMChannel):
+        # Sniping in DM
+        if deleted_messages["dm"]:
+            message = deleted_messages["dm"][-1]
+            await ctx.send(f"**Message Sniped from {message.author}:** {message.content}")
+        else:
+            await ctx.send("No deleted messages to snipe in this DM!")
+    else:
+        # Sniping in Server Channel
+        if deleted_messages["server"]:
+            message = deleted_messages["server"][-1]
+            await ctx.send(f"**Message Sniped from {message.author} in #{message.channel.name}:** {message.content}")
+        else:
+            await ctx.send("No deleted messages to snipe in this server channel!")
+
+
+# ---- Message Delete Event ----
+@bot.event
+async def on_message_delete(message):
+    """Store deleted messages to be sniped later."""
+    if isinstance(message.channel, discord.DMChannel):
+        # Track deleted messages in DM
+        deleted_messages["dm"].append(message)
+    else:
+        # Track deleted messages in server channels
+        deleted_messages["server"].append(message)
+
+
+# Start the bot
+bot.run(TOKEN, bot=False)
